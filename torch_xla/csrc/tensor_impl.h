@@ -13,10 +13,11 @@ namespace torch_xla {
 class XLATensorImpl : public c10::TensorImpl {
  public:
   explicit XLATensorImpl(XLATensor tensor);
+  explicit XLATensorImpl(XLATensorPtr tensor);
 
-  XLATensor& tensor() { return tensor_; }
+  XLATensorPtr& tensor() { return tensor_; }
 
-  void set_tensor(XLATensor xla_tensor);
+  void set_tensor(XLATensorPtr xla_tensor);
 
   void force_refresh_sizes() { generation_ = 0; }
 
@@ -49,9 +50,9 @@ class XLATensorImpl : public c10::TensorImpl {
  private:
   void SetupSizeProperties();
 
-  static caffe2::TypeMeta GetTypeMeta(const XLATensor& tensor);
+  static caffe2::TypeMeta GetTypeMeta(const XLATensorPtr& tensor);
 
-  XLATensor tensor_;
+  XLATensorPtr tensor_;
   size_t generation_ = 0;
 };
 

@@ -57,13 +57,16 @@ XLATensorImpl::XLATensorImpl(XLATensor tensor)
                                           c10::DispatchKey::AutogradXLA},
                       GetTypeMeta(tensor),
                       bridge::XlaDeviceToAtenDevice(tensor.GetDevice())),
-      tensor_(std::move(tensor)) {
+      tensor_(c10::make_intrusive<XLATensor>(std::move(tensor))) {
   is_non_overlapping_and_dense_ = false;
   set_sizes_strides_policy(SizesStridesPolicy::CustomSizes);
 }
 
-void XLATensorImpl::set_tensor(XLATensor xla_tensor) {
-  tensor_ = std::move(xla_tensor);
+XLATensorImpl::XLATensorImpl(XLATensorPtr tensor)
+    : LTCTensorImpl(XLATensor(*tensor)) {}
+
+void XLATensorImpl::set_tensor(XLATensorPtr xla_tensor) {
+  tensor_ = c10::make_intrusive<XLATensor>(std::move(*xla_tensor));
   generation_ = 0;
 }
 
