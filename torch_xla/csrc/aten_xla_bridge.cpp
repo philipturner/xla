@@ -50,32 +50,32 @@ AtenXlaDeviceMapper* AtenXlaDeviceMapper::Get() {
   return device_mapper;
 }
 
-XLATensorImpl* GetXlaTensorImpl(const at::Tensor& tensor) {
+XLATensorImpl* GetXLATensorImpl(const at::Tensor& tensor) {
   return dynamic_cast<XLATensorImpl*>(tensor.unsafeGetTensorImpl());
 }
 
 }  // namespace
 
-c10::optional<XLATensor> TryGetXlaTensor(const at::Tensor& tensor) {
-  XLATensorImpl* impl = GetXlaTensorImpl(tensor);
+c10::optional<XLATensorPtr> TryGetXLATensor(const at::Tensor& tensor) {
+  XLATensorImpl* impl = GetXLATensorImpl(tensor);
   if (impl == nullptr) {
     return c10::nullopt;
   }
   return impl->tensor();
 }
 
-bool IsXlaTensor(const at::Tensor& tensor) {
-  return GetXlaTensorImpl(tensor) != nullptr;
+bool IsXLATensor(const at::Tensor& tensor) {
+  return GetXLATensorImpl(tensor) != nullptr;
 }
 
-XLATensor GetXlaTensor(const at::Tensor& tensor) {
-  auto xtensor = TryGetXlaTensor(tensor);
+XLATensorPtr GetXLATensor(const at::Tensor& tensor) {
+  auto xtensor = TryGetXLATensor(tensor);
   XLA_CHECK(xtensor) << "Input tensor is not an XLA tensor: "
                      << tensor.toString();
   return *xtensor;
 }
 
-void ReplaceXlaTensor(const at::Tensor& tensor, XLATensor new_xla_tensor) {
+void ReplaceXLATensor(const at::Tensor& tensor, XLATensorPtr new_xla_tensor) {
   XLATensorImpl* impl =
       dynamic_cast<XLATensorImpl*>(tensor.unsafeGetTensorImpl());
   XLA_CHECK(impl != nullptr)
@@ -83,66 +83,64 @@ void ReplaceXlaTensor(const at::Tensor& tensor, XLATensor new_xla_tensor) {
   impl->set_tensor(std::move(new_xla_tensor));
 }
 
-std::vector<XLATensor> GetXlaTensors(absl::Span<const at::Tensor> tensors) {
-  std::vector<XLATensor> xla_tensors;
+std::vector<XLATensorPtr> GetXLATensors((absl::Span<const at::Tensor> tensors) {
+  std::vector<XLATensorPtr> xla_tensors;
   xla_tensors.reserve(tensors.size());
   for (const auto& tensor : tensors) {
-    xla_tensors.push_back(bridge::GetXlaTensor(tensor));
+    xla_tensors.push_back(bridge::GetXLATensor(tensor));
   }
   return xla_tensors;
 }
 
-torch_xla::XLATensorPtr GetXlaTensorOrCreateForWrappedNumber(
+torch_xla::XLATensorPtr GetXLATensorOrCreateForWrappedNumber(
     const at::Tensor& tensor, const torch::lazy::BackendDevice& device) {
   if (tensor.unsafeGetTensorImpl()->is_wrapped_number() ||
       (tensor.dim() == 0 && tensor.numel() == 1)) {
-    return c10::make_intrusive<XLATensor>(
-        torch_xla::bridge::GetOrCreateXlaTensor(tensor, device));
+    return torch_xla::bridge::GetOrCreateXLATensor(tensor, device);
   } else {
-    return c10::make_intrusive<XLATensor>(
-        torch_xla::bridge::GetXlaTensor(tensor));
+    return torch_xla::bridge::GetXLATensor(tensor);
   }
 }
 
-XLATensor GetOrCreateXlaTensor(const at::Tensor& tensor,
+XLATensorPtr GetOrCreateXLATensor(const at::Tensor& tensor,
                                const torch::lazy::BackendDevice& device) {
   if (!tensor.defined()) {
-    return XLATensor();
+    return c10::make_intrusive<XLATensor>();
   }
-  auto xtensor = TryGetXlaTensor(tensor);
+  auto xtensor = TryGetXLATensor(tensor);
   return xtensor ? *xtensor : XLATensor::Create(tensor, device);
 }
 
-XLATensor GetOrCreateXlaTensor(const c10::optional<at::Tensor>& tensor,
+XLATensorPtr GetOrCreateXLATensor(const c10::optional<at::Tensor>& tensor,
                                const torch::lazy::BackendDevice& device) {
   if (!IsDefined(tensor)) {
-    return XLATensor();
+    return c10::make_intrusive<XLATensor>();
   }
-  auto xtensor = TryGetXlaTensor(*tensor);
+  auto xtensor = TryGetXLATensor(*tensor);
   return xtensor ? *xtensor : XLATensor::Create(*tensor, device);
 }
 
-std::vector<XLATensor> GetOrCreateXlaTensors(
+std::vector<XLATensorPtr> GetOrCreateXLATensors((
     absl::Span<const at::Tensor> tensors,
     const torch::lazy::BackendDevice& device) {
-  std::vector<XLATensor> xla_tensors;
+  std::vector<XLATensorPtr> xla_tensors;
   for (const at::Tensor& tensor : tensors) {
-    xla_tensors.push_back(bridge::GetOrCreateXlaTensor(tensor, device));
+    xla_tensors.push_back(bridge::GetOrCreateXLATensor(tensor, device));
   }
   return xla_tensors;
 }
 
 std::vector<at::Tensor> XlaCreateTensorList(const at::TensorList& tensors) {
   std::vector<at::Tensor> aten_xla_tensors(tensors.size());
-  std::vector<XLATensor> xla_tensors;
-  // We need to separate out the defined tensors first, GetXlaTensor() doesn't
+  std::vector<XLATensorPtr> xla_tensors;
+  // We need to separate out the defined tensors first, GetXLATensor() doesn't
   // work with undefined tensors.
   std::vector<bool> to_translate(tensors.size());
   for (size_t i = 0; i < tensors.size(); ++i) {
     const at::Tensor& tensor = tensors[i];
     if (tensor.defined()) {
-      auto xtensor = TryGetXlaTensor(tensor);
-      if (xtensor) {
+      auto xtensor = TryGetXLATensor(tensor);
+      if (xtensor.has_value()) {
         to_translate[i] = true;
         xla_tensors.push_back(*xtensor);
       } else {
@@ -189,13 +187,13 @@ void XlaUpdateTensors(absl::Span<const at::Tensor> dest_xla_tensors,
   for (auto index : indices) {
     at::Tensor dest = dest_xla_tensors.at(index);
     at::Tensor source = source_cpu_tensors.at(index);
-    XLATensorImpl* dest_impl = GetXlaTensorImpl(dest);
+    XLATensorImpl* dest_impl = GetXLATensorImpl(dest);
     if (dest_impl != nullptr) {
-      auto xla_source = TryGetXlaTensor(source);
-      if (!xla_source) {
-        dest_impl->tensor().UpdateFromTensorOut(source);
+      auto xla_source = TryGetXLATensor(source);
+      if (!xla_source.has_value()) {
+        dest_impl->tensor()->UpdateFromTensorOut(source);
       } else {
-        dest_impl->tensor().UpdateFromTensorOut(*xla_source);
+        dest_impl->tensor()->UpdateFromTensorOut(*xla_source);
       }
       dest_impl->force_refresh_sizes();
     } else {
@@ -206,11 +204,11 @@ void XlaUpdateTensors(absl::Span<const at::Tensor> dest_xla_tensors,
 
 c10::optional<torch::lazy::BackendDevice> GetXlaDevice(
     const at::Tensor& tensor) {
-  auto xtensor = TryGetXlaTensor(tensor);
-  if (!xtensor) {
+  auto xtensor = TryGetXLATensor(tensor);
+  if (!xtensor.has_value()) {
     return c10::nullopt;
   }
-  return xtensor->GetDevice();
+  return (*xtensor)->GetDevice();
 }
 
 c10::optional<torch::lazy::BackendDevice> GetXlaDevice(
@@ -314,50 +312,50 @@ c10::Device GetCurrentAtenDevice() {
   return XlaDeviceToAtenDevice(torch_xla::GetCurrentDevice());
 }
 
-at::Tensor XlaToAtenTensor(XLATensor xla_tensor,
+at::Tensor XlaToAtenTensor(XLATensorPtr xla_tensor,
                            const at::TensorOptions& tensor_options) {
   if (tensor_options.has_device()) {
     XLA_CHECK_NE(tensor_options.device().type(), at::kXLA);
   }
-  at::Tensor tensor = xla_tensor.ToTensor(/*detached=*/false);
-  // We need to copy the tensor since it is cached within the XLATensor, and
+  at::Tensor tensor = xla_tensor->ToTensor(/*detached=*/false);
+  // We need to copy the tensor since it is cached within the XLATensorPtr, and
   // returning it directly might expose it to in place changes. Which there was
   // COW option :)
   return tensor.to(tensor_options, /*non_blocking=*/false, /*copy=*/true);
 }
 
-at::Tensor AtenFromXlaTensor(XLATensor xla_tensor) {
-  return xla_tensor.is_null() ? at::Tensor()
-                              : at::Tensor(c10::make_intrusive<XLATensorImpl>(
-                                    std::move(xla_tensor)));
+at::Tensor AtenFromXLATensor(XLATensorPtr xla_tensor) {
+  return xla_tensor->is_null() ? at::Tensor()
+                               : at::Tensor(c10::make_intrusive<XLATensorImpl>(
+                                     std::move(xla_tensor)));
 }
 
-std::vector<at::Tensor> AtenFromXlaTensors(
-    absl::Span<const XLATensor> xla_tensors) {
+std::vector<at::Tensor> AtenFromXLATensors((
+    absl::Span<const XLATensorPtr> xla_tensors) {
   std::vector<at::Tensor> tensors;
   tensors.reserve(xla_tensors.size());
   for (auto& tensor : xla_tensors) {
-    tensors.emplace_back(AtenFromXlaTensor(tensor));
+    tensors.emplace_back(AtenFromXLATensor(tensor));
   }
   return tensors;
 }
 
-at::Tensor CreateXlaTensor(
+at::Tensor CreateXLATensor(
     at::Tensor tensor,
     const c10::optional<torch::lazy::BackendDevice>& device) {
   if (tensor.defined() && device) {
-    XLATensor xla_tensor = XLATensor::Create(std::move(tensor), *device);
-    tensor = AtenFromXlaTensor(xla_tensor);
+    XLATensorPtr xla_tensor = XLATensor::Create(std::move(tensor), *device);
+    tensor = AtenFromXLATensor(xla_tensor);
   }
   return tensor;
 }
 
-std::vector<at::Tensor> CreateXlaTensors(
+std::vector<at::Tensor> CreateXLATensors((
     const std::vector<at::Tensor>& tensors,
     const c10::optional<torch::lazy::BackendDevice>& device) {
   std::vector<at::Tensor> xtensors;
   for (auto& tensor : tensors) {
-    xtensors.push_back(CreateXlaTensor(tensor, device));
+    xtensors.push_back(CreateXLATensor(tensor, device));
   }
   return xtensors;
 }
